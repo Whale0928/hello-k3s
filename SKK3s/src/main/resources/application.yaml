@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: SKK3s
+server:
+  port: 8080

@@ -1,0 +1,24 @@
+# ============================================
+# ConfigMap: 애플리케이션 환경 변수 관리
+# ============================================
+# 목적: 민감하지 않은 설정 정보를 Key-Value 형태로 저장
+# 이미지 재빌드 없이 설정 변경 가능
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skk3s-config
+  namespace: default
+  labels:
+    app: skk3s
+data:
+  # Spring Boot 프로파일 설정
+  SPRING_PROFILES_ACTIVE: "production"
+
+  # 서버 포트 (컨테이너 내부 포트)
+  SERVER_PORT: "8080"
+
+  # 애플리케이션 이름
+  APP_NAME: "SKK3s"
+
+  # JVM 타임존 설정
+  TZ: "Asia/Seoul"
