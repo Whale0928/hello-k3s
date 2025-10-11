@@ -1,0 +1,132 @@
+# Phase 6: Database Layer
+# MySQL 데이터베이스 배포
+
+# MySQL 비밀번호
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: test-namespace
+type: Opaque
+stringData:
+  mysql-root-password: "rootpassword123"
+  mysql-password: "userpassword123"
+
+---
+# MySQL 설정
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: test-namespace
+data:
+  mysql-database: "myapp"
+  mysql-user: "appuser"
+
+---
+# MySQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: test-namespace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# MySQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+        tier: database
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-root-password
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: mysql-config
+              key: mysql-database
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: mysql-config
+              key: mysql-user
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: mysql-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+
+---
+# MySQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: test-namespace
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+  - port: 3306
+    targetPort: 3306
+
+---
+# 테스트용 MySQL Client Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql-client
+  namespace: test-namespace
+spec:
+  containers:
+  - name: mysql-client
+    image: mysql:8.0
+    command: ['sleep', '3600']
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: mysql-secret
+          key: mysql-root-password

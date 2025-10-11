@@ -1,0 +1,138 @@
+# Phase 4: ConfigMap 기초
+# 설정을 코드와 분리하기
+
+# 1. 간단한 Key-Value ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: test-namespace
+data:
+  APP_NAME: "My K3s App"
+  APP_VERSION: "1.0.0"
+  DEBUG_MODE: "true"
+  MAX_CONNECTIONS: "100"
+
+---
+# 2. 파일 형태의 ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-files
+  namespace: test-namespace
+data:
+  app.properties: |
+    server.port=8080
+    app.name=K3s Learning
+    app.env=development
+    
+  database.conf: |
+    host=localhost
+    port=3306
+    name=mydb
+    
+  welcome.html: |
+    <html>
+      <body>
+        <h1>Welcome to K3s!</h1>
+        <p>ConfigMap Example</p>
+      </body>
+    </html>
+
+---
+# 3. ConfigMap을 환경변수로 사용
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-env
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: config-demo
+  template:
+    metadata:
+      labels:
+        app: config-demo
+    spec:
+      containers:
+      - name: app
+        image: busybox
+        command: ['sh', '-c', 'echo "App: $APP_NAME v$APP_VERSION" && sleep 3600']
+        env:
+        # 개별 키 가져오기
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_NAME
+        - name: APP_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_VERSION
+        # 전체 ConfigMap을 환경변수로
+        envFrom:
+        - configMapRef:
+            name: app-config
+
+---
+# 4. ConfigMap을 Volume으로 마운트
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-volume
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: volume-demo
+  template:
+    metadata:
+      labels:
+        app: volume-demo
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: config-volume
+          mountPath: /usr/share/nginx/html
+          subPath: welcome.html
+        - name: config-volume
+          mountPath: /etc/config
+      volumes:
+      - name: config-volume
+        configMap:
+          name: config-files
+
+---
+# ConfigMap 테스트 가이드
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configmap-guide
+  namespace: test-namespace
+data:
+  guide.txt: |
+    # ConfigMap 테스트
+    
+    1. ConfigMap 확인
+    kubectl get cm -n test-namespace
+    kubectl describe cm app-config -n test-namespace
+    
+    2. 환경변수 확인
+    kubectl exec -it deployment/app-with-env -n test-namespace -- env | grep APP
+    
+    3. 마운트된 파일 확인
+    kubectl exec -it deployment/app-with-volume -n test-namespace -- ls /etc/config
+    kubectl exec -it deployment/app-with-volume -n test-namespace -- cat /etc/config/app.properties
+    
+    4. ConfigMap 수정
+    kubectl edit cm app-config -n test-namespace
+    # Pod 재시작 필요
+    kubectl rollout restart deployment/app-with-env -n test-namespace

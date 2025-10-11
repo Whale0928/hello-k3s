@@ -1,0 +1,44 @@
+# 단일 Pod 생성 예제
+# Pod는 쿠버네티스의 가장 작은 배포 단위
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod
+  namespace: test-namespace
+  labels:
+    app: nginx
+    tier: web
+spec:
+  containers:
+  - name: nginx
+    image: nginx:alpine
+    ports:
+    - containerPort: 80
+      name: http
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+
+---
+# 멀티 컨테이너 Pod 예제
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multi-container-pod
+  namespace: test-namespace
+spec:
+  containers:
+  # 메인 애플리케이션 컨테이너
+  - name: app
+    image: busybox
+    command: ['sh', '-c', 'echo "App is running" && sleep 3600']
+    
+  # 사이드카 컨테이너 (로그 수집용)
+  - name: sidecar
+    image: busybox
+    command: ['sh', '-c', 'echo "Sidecar is running" && sleep 3600']

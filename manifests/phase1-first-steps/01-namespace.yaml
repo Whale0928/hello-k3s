@@ -1,0 +1,29 @@
+# Namespace 생성 예제
+# 네임스페이스는 쿠버네티스 리소스를 논리적으로 분리하는 단위
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-namespace
+  labels:
+    name: test-namespace
+    environment: learning
+
+---
+# 추가 네임스페이스 예제
+#apiVersion: v1
+#kind: Namespace
+#metadata:
+#  name: development
+#  labels:
+#    name: development
+#    environment: dev
+
+---
+#apiVersion: v1
+#kind: Namespace
+#metadata:
+#  name: production
+#  labels:
+#    name: production
+#    environment: prod

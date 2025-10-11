@@ -1,0 +1,197 @@
+# Phase 5: 스토리지 기초
+# 데이터 영속성 보장하기
+
+# 1. EmptyDir - Pod 내 임시 저장소
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emptydir-demo
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: emptydir
+  template:
+    metadata:
+      labels:
+        app: emptydir
+    spec:
+      containers:
+      - name: writer
+        image: busybox
+        command: ['sh', '-c', 'while true; do echo "$(date)" >> /data/log.txt; sleep 5; done']
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+      - name: reader
+        image: busybox
+        command: ['sh', '-c', 'while true; do cat /data/log.txt; sleep 10; done']
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+
+---
+# 2. HostPath - 노드의 파일시스템 사용
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostpath-demo
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hostpath
+  template:
+    metadata:
+      labels:
+        app: hostpath
+    spec:
+      containers:
+      - name: app
+        image: nginx:alpine
+        volumeMounts:
+        - name: host-volume
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: host-volume
+        hostPath:
+          path: /tmp/k3s-data
+          type: DirectoryOrCreate
+
+---
+# 3. PersistentVolumeClaim - 영구 저장소
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+  namespace: test-namespace
+spec:
+  accessModes:
+    - ReadWriteOnce  # 단일 노드에서 읽기/쓰기
+  storageClassName: local-path  # K3s 기본 StorageClass
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# 4. PVC를 사용하는 Pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pvc-demo
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pvc-demo
+  template:
+    metadata:
+      labels:
+        app: pvc-demo
+    spec:
+      containers:
+      - name: app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: persistent-storage
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: persistent-storage
+        persistentVolumeClaim:
+          claimName: my-pvc
+
+---
+# 5. StatefulSet 기초 (순서가 있는 배포)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web-stateful
+  namespace: test-namespace
+spec:
+  serviceName: "nginx-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx-sts
+  template:
+    metadata:
+      labels:
+        app: nginx-sts
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  # 각 Pod마다 독립적인 PVC 생성
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "local-path"
+      resources:
+        requests:
+          storage: 500Mi
+
+---
+# 6. Headless Service (StatefulSet용)
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-headless
+  namespace: test-namespace
+spec:
+  clusterIP: None
+  selector:
+    app: nginx-sts
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# 스토리지 테스트 가이드
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-guide
+  namespace: test-namespace
+data:
+  guide.txt: |
+    # 스토리지 테스트
+    
+    1. Volume 상태 확인
+    kubectl get pv
+    kubectl get pvc -n test-namespace
+    kubectl describe pvc my-pvc -n test-namespace
+    
+    2. EmptyDir 테스트
+    kubectl logs deployment/emptydir-demo -c reader -n test-namespace
+    
+    3. PVC 사용량 확인
+    kubectl exec deployment/pvc-demo -n test-namespace -- df -h /usr/share/nginx/html
+    
+    4. 데이터 쓰기 테스트
+    kubectl exec deployment/pvc-demo -n test-namespace -- sh -c 'echo "Test Data" > /usr/share/nginx/html/test.html'
+    
+    5. Pod 재시작 후 데이터 확인
+    kubectl delete pod -l app=pvc-demo -n test-namespace
+    kubectl exec deployment/pvc-demo -n test-namespace -- cat /usr/share/nginx/html/test.html
+    
+    6. StatefulSet Pod 이름 확인
+    kubectl get pods -l app=nginx-sts -n test-namespace
+    # web-stateful-0, web-stateful-1, web-stateful-2 순서대로 생성됨
+    
+    7. StatefulSet 각 Pod의 PVC 확인
+    kubectl get pvc -n test-namespace | grep www-web-stateful

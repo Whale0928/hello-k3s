@@ -1,0 +1,247 @@
+# Phase 7: 운영 기초
+# 애플리케이션 모니터링과 관리
+
+# 1. Health Check 구성
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-probes
+  namespace: test-namespace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: probe-demo
+  template:
+    metadata:
+      labels:
+        app: probe-demo
+    spec:
+      containers:
+      - name: app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        # Liveness Probe - 컨테이너가 살아있는지 확인
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10  # 시작 후 대기 시간
+          periodSeconds: 10         # 체크 주기
+          timeoutSeconds: 5         # 타임아웃
+          failureThreshold: 3       # 실패 횟수
+        # Readiness Probe - 트래픽 받을 준비가 되었는지 확인
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        # Startup Probe - 시작 시간이 긴 애플리케이션용
+        startupProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          failureThreshold: 30
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+
+---
+# 2. 로그 수집용 사이드카 패턴
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-logging
+  namespace: test-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logging-demo
+  template:
+    metadata:
+      labels:
+        app: logging-demo
+    spec:
+      containers:
+      # 메인 애플리케이션
+      - name: app
+        image: busybox
+        command: ['sh', '-c']
+        args:
+        - while true; do
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Application log message" >> /var/log/app.log;
+            if [ $((RANDOM % 10)) -eq 0 ]; then
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR - Something went wrong!" >> /var/log/app.log;
+            fi;
+            sleep 5;
+          done
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log
+      
+      # 로그 수집 사이드카
+      - name: log-collector
+        image: busybox
+        command: ['sh', '-c', 'tail -f /var/log/app.log']
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log
+      
+      volumes:
+      - name: logs
+        emptyDir: {}
+
+---
+# 3. 메트릭 수집을 위한 ServiceMonitor (metrics-server 필요)
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-demo-service
+  namespace: test-namespace
+  labels:
+    app: probe-demo
+spec:
+  selector:
+    app: probe-demo
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# 4. 리소스 모니터링 Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: resource-check
+  namespace: test-namespace
+spec:
+  template:
+    spec:
+      containers:
+      - name: kubectl
+        image: bitnami/kubectl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "=== Node 리소스 사용량 ==="
+          kubectl top nodes 2>/dev/null || echo "metrics-server가 설치되지 않았습니다"
+          echo ""
+          echo "=== Pod 리소스 사용량 ==="
+          kubectl top pods -n test-namespace 2>/dev/null || echo "metrics-server가 설치되지 않았습니다"
+          echo ""
+          echo "=== Pod 상태 ==="
+          kubectl get pods -n test-namespace
+          echo ""
+          echo "=== 최근 이벤트 ==="
+          kubectl get events -n test-namespace --sort-by='.lastTimestamp' | head -10
+      restartPolicy: Never
+
+---
+# 5. 간단한 백업 CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-configs
+  namespace: test-namespace
+spec:
+  schedule: "0 2 * * *"  # 매일 새벽 2시
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: bitnami/kubectl:latest
+            command:
+            - sh
+            - -c
+            - |
+              DATE=$(date +%Y%m%d)
+              echo "백업 시작: $DATE"
+              kubectl get configmap,secret -n test-namespace -o yaml > /backup/backup-$DATE.yaml
+              echo "백업 완료: /backup/backup-$DATE.yaml"
+            volumeMounts:
+            - name: backup
+              mountPath: /backup
+          volumes:
+          - name: backup
+            emptyDir: {}
+          restartPolicy: OnFailure
+
+---
+# 6. 트러블슈팅 도구 Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug-pod
+  namespace: test-namespace
+spec:
+  containers:
+  - name: debug
+    image: nicolaka/netshoot:latest
+    command: ['sleep', '3600']
+    resources:
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+
+---
+# 운영 가이드
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: operations-guide
+  namespace: test-namespace
+data:
+  guide.txt: |
+    # 운영 기초 가이드
+    
+    ## 1. 로그 확인
+    kubectl logs deployment/app-with-logging -c app -n test-namespace
+    kubectl logs deployment/app-with-logging -c log-collector -n test-namespace
+    kubectl logs deployment/app-with-probes -n test-namespace --tail=50
+    kubectl logs deployment/app-with-probes -n test-namespace --follow
+    
+    ## 2. 리소스 모니터링
+    # metrics-server 설치 (필요시)
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    
+    # 리소스 사용량 확인
+    kubectl top nodes
+    kubectl top pods -n test-namespace
+    
+    ## 3. Health Check 상태
+    kubectl describe pod -l app=probe-demo -n test-namespace | grep -A5 "Liveness\|Readiness"
+    
+    ## 4. 디버깅
+    # debug-pod 사용
+    kubectl exec -it debug-pod -n test-namespace -- bash
+    # 네트워크 테스트
+    curl frontend-service
+    nslookup backend-service
+    ping mysql-service
+    
+    ## 5. 이벤트 확인
+    kubectl get events -n test-namespace --sort-by='.lastTimestamp'
+    
+    ## 6. Pod 재시작
+    kubectl rollout restart deployment/app-with-probes -n test-namespace
+    
+    ## 7. 트러블슈팅 체크리스트
+    - [ ] Pod 상태 확인 (Running?)
+    - [ ] 로그 확인 (에러 메시지?)
+    - [ ] 리소스 부족 (CPU/Memory?)
+    - [ ] 네트워크 연결 (Service/DNS?)
+    - [ ] ConfigMap/Secret 마운트
+    - [ ] PVC 상태
+    - [ ] Node 상태

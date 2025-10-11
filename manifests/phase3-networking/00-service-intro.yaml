@@ -1,0 +1,59 @@
+# Phase 2: Service 기초
+# Pod를 외부에 노출하기
+
+# 1. ClusterIP Service (기본 타입)
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-first-service
+  namespace: test-namespace
+spec:
+  # type을 지정하지 않으면 기본값은 ClusterIP
+  selector:
+    app: my-app  # 01-simple-deployment.yaml의 첫 번째 앱과 연결
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# 2. NodePort Service (외부 접속 가능)
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-nodeport
+  namespace: test-namespace
+spec:
+  type: NodePort
+  selector:
+    app: webapp  # webapp Deployment와 연결
+  ports:
+  - port: 80        # Service 포트
+    targetPort: 80  # Container 포트
+    nodePort: 30001 # 외부 접속 포트 (30000-32767)
+
+---
+# 3. Service 실습 가이드
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: service-guide
+  namespace: test-namespace
+data:
+  guide.txt: |
+    # Service 테스트 방법
+    
+    1. ClusterIP 테스트 (클러스터 내부에서만)
+    kubectl run test-pod --image=busybox -it --rm --restart=Never -- wget -O- my-first-service
+    
+    2. NodePort 테스트 (외부에서 접속)
+    curl http://localhost:30001
+    
+    3. Service Endpoint 확인
+    kubectl get endpoints -n test-namespace
+    
+    4. Service 상세 정보
+    kubectl describe svc webapp-nodeport -n test-namespace
+    
+    5. Port Forward로 테스트 (임시)
+    kubectl port-forward service/my-first-service 8080:80 -n test-namespace
+    # 브라우저에서 http://localhost:8080 접속

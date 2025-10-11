@@ -1,0 +1,231 @@
+# Phase 6: Frontend Layer
+# Nginx 웹 서버로 프론트엔드 제공
+
+# Frontend HTML
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-html
+  namespace: test-namespace
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>K3s 3-Tier App</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 50px auto;
+                padding: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }
+            .container {
+                background: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            }
+            h1 { color: #333; }
+            .status { 
+                padding: 10px;
+                background: #4CAF50;
+                color: white;
+                border-radius: 5px;
+                margin: 20px 0;
+            }
+            button {
+                background: #667eea;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                margin: 5px;
+            }
+            button:hover { background: #764ba2; }
+            #result {
+                margin-top: 20px;
+                padding: 15px;
+                background: #f5f5f5;
+                border-radius: 5px;
+                min-height: 50px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>K3s 3-Tier Application</h1>
+            <div class="status">Frontend → Backend → Database 연결 완료!</div>
+            
+            <h2>시스템 구성</h2>
+            <ul>
+                <li>Frontend: Nginx</li>
+                <li>Backend: Spring Boot (SKK3s)</li>
+                <li>Database: MySQL 8.0</li>
+            </ul>
+            
+            <h2>API 테스트</h2>
+            <button onclick="testHealth()">Health Check</button>
+            <button onclick="testAPI()">API 호출</button>
+            <button onclick="testDB()">DB 연결 테스트</button>
+            
+            <div id="result">결과가 여기에 표시됩니다...</div>
+        </div>
+        
+        <script>
+            function testHealth() {
+                document.getElementById('result').innerHTML = 'Health Check 중...';
+                fetch('/api/actuator/health')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('result').innerHTML = 
+                            '<strong>Health Status:</strong> ' + JSON.stringify(data, null, 2);
+                    })
+                    .catch(error => {
+                        document.getElementById('result').innerHTML = 
+                            '<span style="color:red">Error: ' + error + '</span>';
+                    });
+            }
+            
+            function testAPI() {
+                document.getElementById('result').innerHTML = 'API 호출 중...';
+                fetch('/api/')
+                    .then(response => response.text())
+                    .then(data => {
+                        document.getElementById('result').innerHTML = 
+                            '<strong>API Response:</strong> ' + data;
+                    })
+                    .catch(error => {
+                        document.getElementById('result').innerHTML = 
+                            '<span style="color:red">Error: ' + error + '</span>';
+                    });
+            }
+            
+            function testDB() {
+                document.getElementById('result').innerHTML = 'DB 테스트 중...';
+                // 실제로는 백엔드에 DB 테스트 엔드포인트가 있어야 함
+                document.getElementById('result').innerHTML = 
+                    'DB 연결 테스트는 백엔드 로그를 확인하세요.';
+            }
+        </script>
+    </body>
+    </html>
+
+  nginx.conf: |
+    server {
+        listen 80;
+        server_name _;
+        
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+            try_files $uri $uri/ /index.html;
+        }
+        
+        location /api {
+            proxy_pass http://backend-service:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: test-namespace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: html
+          mountPath: /usr/share/nginx/html
+        - name: config
+          mountPath: /etc/nginx/conf.d
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: html
+        configMap:
+          name: frontend-html
+          items:
+          - key: index.html
+            path: index.html
+      - name: config
+        configMap:
+          name: frontend-html
+          items:
+          - key: nginx.conf
+            path: default.conf
+
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: test-namespace
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+
+---
+# Ingress for All Services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: test-namespace
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: app.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
+  - host: api.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8080

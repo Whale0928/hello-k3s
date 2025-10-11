@@ -1,0 +1,118 @@
+# Phase 3: Ingress 기초
+# HTTP 라우팅으로 서비스 노출
+
+# 1. 가장 간단한 Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: simple-ingress
+  namespace: test-namespace
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: myapp.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-test
+            port:
+              number: 80
+
+---
+# 2. Path 기반 라우팅
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: path-ingress
+  namespace: test-namespace
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: k3s.local
+    http:
+      paths:
+      - path: /app1
+        pathType: Prefix
+        backend:
+          service:
+            name: service-test
+            port:
+              number: 80
+      - path: /app2
+        pathType: Prefix
+        backend:
+          service:
+            name: internal-service
+            port:
+              number: 80
+
+---
+# 3. 여러 도메인 라우팅
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-host-ingress
+  namespace: test-namespace
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: app1.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-test
+            port:
+              number: 80
+  - host: app2.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: internal-service
+            port:
+              number: 80
+
+---
+# Ingress 테스트 가이드
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-guide
+  namespace: test-namespace
+data:
+  guide.txt: |
+    # Ingress 설정 및 테스트
+    
+    1. hosts 파일 설정 (Mac/Linux)
+    sudo vi /etc/hosts
+    # 추가:
+    127.0.0.1 myapp.local
+    127.0.0.1 k3s.local
+    127.0.0.1 app1.local
+    127.0.0.1 app2.local
+    
+    2. Ingress 확인
+    kubectl get ingress -n test-namespace
+    kubectl describe ingress simple-ingress -n test-namespace
+    
+    3. 테스트
+    curl http://myapp.local
+    curl http://k3s.local/app1
+    curl http://k3s.local/app2
+    curl http://app1.local
+    curl http://app2.local
+    
+    4. Traefik Dashboard (K3s)
+    kubectl port-forward -n kube-system deployment/traefik 9000:9000
+    # 브라우저: http://localhost:9000/dashboard/
